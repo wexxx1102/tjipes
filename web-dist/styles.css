@@ -261,6 +261,7 @@ a {
 
 .main {
   display: grid;
+  min-height: 0;
 }
 
 .view {
@@ -581,12 +582,14 @@ a {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
+  min-height: calc(100vh - 32px);
 }
 
 .portal-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .manage-panel {
@@ -923,6 +926,7 @@ a {
   background: #fff;
   min-height: 0;
   height: 100%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .iframe-shell iframe {
@@ -930,6 +934,35 @@ a {
   height: 100%;
   border: 0;
   background: #fff;
+  display: block;
+}
+
+.screen-app.is-portal-expanded .panel.portal-panel {
+  min-height: calc(100vh - 16px);
+  padding: 10px;
+  border-radius: 22px;
+}
+
+.screen-app.is-portal-expanded .panel.portal-panel .panel__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.screen-app.is-portal-expanded .panel.portal-panel .panel__head h3 {
+  margin: 0;
+  font-size: 1.18rem;
+}
+
+.screen-app.is-portal-expanded .panel.portal-panel .panel__head p {
+  display: none;
+}
+
+.screen-app.is-portal-expanded .panel.portal-panel .iframe-shell {
+  height: calc(100vh - 106px);
+  border-radius: 16px;
 }
 
 .viewer-overlay {
