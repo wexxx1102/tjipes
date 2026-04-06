@@ -34,14 +34,7 @@ jobs:
           Copy-Item assets -Destination web-dist -Recurse -Force
 
       - name: Build Tauri app (Windows)
-        run: npx tauri build
-
-      - name: Upload MSI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: warn
+        run: npx tauri build --bundles nsis
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
