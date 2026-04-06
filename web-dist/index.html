@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>天津知识产权交易中心触摸屏展示软件</title>
+    <link rel="stylesheet" href="./styles.css?v=20260406-23" />
+    <script>
+      window.__TAURI__ = window.__TAURI__ || {};
+    </script>
+    <script type="module" src="./tauri-bridge.js?v=20260406-10"></script>
+  </head>
+  <body>
+    <div class="screen-app">
+      <aside class="sidebar">
+        <div class="sidebar__glow"></div>
+        <div class="brand">
+          <div class="brand__logo-wrap">
+            <img class="brand__logo" src="./assets/logo-main.png" alt="天津知识产权交易中心 logo" />
+            <div class="brand__identity">
+              <p class="brand__tag">Tianjin Intellectual Property Exchange</p>
+              <h1>天津知识产权交易中心</h1>
+              <p class="brand__sub">科技成果与知识产权展示中枢</p>
+            </div>
+          </div>
+          <p class="brand__mission">面向展厅场景的智能触摸展示终端</p>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <button class="nav__button is-active" data-view="showcase">成果展示</button>
+          <button class="nav__button" data-view="manage">成果管理</button>
+          <button class="nav__button" data-view="trading">交易项目查询</button>
+          <button class="nav__button" data-view="data-ip">数据知识产权登记</button>
+          <button class="nav__button" data-view="official">中心官网</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="view is-active" data-view-panel="showcase">
+          <section class="panel panel--showcase">
+            <div class="panel__head">
+              <div class="panel__hero">
+                <span class="panel__kicker">Tianjin Intellectual Property Exchange</span>
+                <h3>成果展示区</h3>
+                <p>统一成果卡片轮播展示，适配触摸一体机浏览与本页查看。</p>
+              </div>
+              <button class="action-link showcase-refresh" id="refreshMediaButton" type="button">刷新内容</button>
+            </div>
+
+            <div class="carousel-shell">
+              <button id="carouselPrevButton" class="carousel-arrow carousel-arrow--prev" type="button" aria-label="上一页">
+                ‹
+              </button>
+              <div id="mediaGrid" class="media-grid" aria-live="polite"></div>
+              <button id="carouselNextButton" class="carousel-arrow carousel-arrow--next" type="button" aria-label="下一页">
+                ›
+              </button>
+            </div>
+
+            <div id="mediaEmpty" class="empty-state">
+              <h3>暂无展示资源</h3>
+              <p>请将视频、图片或 PDF 演示资料放入资源目录，系统会自动轮询刷新。</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="manage">
+          <section class="panel manage-panel">
+            <div class="panel__head">
+              <div>
+                <h3>成果管理</h3>
+                <p>成果表格化管理，支持批量删除与编辑。新增成果在独立窗口内完成。</p>
+              </div>
+              <button id="achievementOpenUploadButton" class="action-link" type="button">新增上传成果</button>
+            </div>
+
+            <div class="manage-list-wrap">
+              <div class="manage-list-head">
+                <h4>已录入成果</h4>
+                <div class="manage-list-tools">
+                  <label class="manage-list-select-all">
+                    <input id="achievementSelectAll" type="checkbox" />
+                    <span>全选</span>
+                  </label>
+                  <span id="achievementSelectedCount" class="manage-selected-count">未选择</span>
+                  <button id="achievementBatchDeleteButton" class="action-link action-link--ghost manage-list-item__button" type="button" disabled>
+                    批量删除
+                  </button>
+                </div>
+              </div>
+              <div id="achievementList" class="manage-list"></div>
+            </div>
+          </section>
+        </section>
+
+        <section id="achievementUploadModal" class="manage-modal" hidden>
+          <div class="manage-modal__backdrop"></div>
+          <div class="manage-modal__dialog">
+            <header class="manage-modal__header">
+              <div>
+                <h3>新增/编辑成果</h3>
+                <p>上传成果文件，自动截取视频首帧，可手动替换预览图。</p>
+              </div>
+              <button id="achievementModalCloseButton" class="manage-modal__close" type="button" aria-label="关闭上传窗口">×</button>
+            </header>
+            <form id="achievementForm" class="manage-form">
+              <label class="manage-field">
+                <span>成果文件</span>
+                <input id="achievementFile" name="file" type="file" accept=".mp4,.webm,.mov,.m4v,.jpg,.jpeg,.png,.gif,.webp,.bmp,.ppt,.pptx,.pps,.ppsx,.pdf" />
+              </label>
+              <label class="manage-field">
+                <span>成果名称</span>
+                <input id="achievementTitle" name="title" type="text" placeholder="请输入成果名称" required />
+              </label>
+              <label class="manage-field">
+                <span>成果持有方</span>
+                <input id="achievementOwner" name="owner" type="text" placeholder="请输入成果持有方" />
+              </label>
+              <label class="manage-field">
+                <span>专利号</span>
+                <input id="achievementPatentNo" name="patentNo" type="text" placeholder="请输入专利号（可选）" />
+              </label>
+              <label class="manage-field manage-field--full">
+                <span>成果简介</span>
+                <textarea id="achievementDescription" name="description" rows="3" placeholder="可填写成果简介（可选）"></textarea>
+              </label>
+              <label class="manage-field">
+                <span>预览图文件（可选）</span>
+                <input id="achievementPosterFile" name="posterFile" type="file" accept=".jpg,.jpeg,.png,.webp,.bmp" />
+              </label>
+              <div class="manage-field manage-field--full">
+                <span>预览图</span>
+                <div id="achievementUploadPreview" class="manage-upload-preview">
+                  <div id="achievementUploadPreviewEmpty" class="manage-upload-preview__empty">选择文件后自动生成预览图</div>
+                  <img id="achievementUploadPreviewImage" alt="上传预览图" hidden />
+                </div>
+              </div>
+              <div class="manage-field manage-field--full">
+                <span>上传进度</span>
+                <div class="manage-upload-progress" id="achievementUploadProgress">
+                  <div id="achievementUploadProgressBar" class="manage-upload-progress__bar"></div>
+                </div>
+                <p id="achievementUploadProgressText" class="manage-upload-progress__text">0%</p>
+              </div>
+              <div class="manage-actions">
+                <button id="achievementSubmitButton" class="action-link" type="submit">上传成果</button>
+                <button id="achievementCancelButton" class="action-link action-link--ghost" type="button" hidden>取消编辑</button>
+                <p id="achievementStatus" class="manage-status" aria-live="polite"></p>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="trading">
+          <section class="panel portal-panel">
+            <div class="panel__head">
+              <div>
+                <h3>交易项目查询</h3>
+                <p>内嵌交易项目查询页面，便于在触摸屏上直接浏览。</p>
+              </div>
+              <div class="portal-actions">
+                <button class="action-link action-link--ghost" id="tradingBackButton" type="button">返回</button>
+                <button class="action-link action-link--ghost" id="tradingCloseButton" type="button">关闭</button>
+                <button class="action-link" id="tradingRefreshButton" type="button">刷新页面</button>
+              </div>
+            </div>
+            <div class="iframe-shell">
+              <iframe
+                id="tradingFrame"
+                title="交易项目查询"
+                src="https://zscq.tpre.cn/ListedTec/Index"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                data-home-url="https://zscq.tpre.cn/ListedTec/Index"
+              ></iframe>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="data-ip">
+          <section class="panel portal-panel">
+            <div class="panel__head">
+              <div>
+                <h3>数据知识产权登记</h3>
+                <p>接入数据知识产权登记入口，支持展示和快捷跳转。</p>
+              </div>
+              <div class="portal-actions">
+                <button class="action-link action-link--ghost" id="dataIpBackButton" type="button">返回</button>
+                <button class="action-link action-link--ghost" id="dataIpCloseButton" type="button">关闭</button>
+                <button class="action-link" id="dataIpRefreshButton" type="button">刷新页面</button>
+              </div>
+            </div>
+            <div class="iframe-shell">
+              <iframe
+                id="dataIpFrame"
+                title="数据知识产权登记"
+                src="http://www.tjipe.com/data-asset/index"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                data-home-url="http://www.tjipe.com/data-asset/index"
+              ></iframe>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="official">
+          <section class="panel portal-panel">
+            <div class="panel__head">
+              <div>
+                <h3>中心官网</h3>
+                <p>展示天津知识产权交易中心官网，支持现场查询与宣传展示。</p>
+              </div>
+              <div class="portal-actions">
+                <button class="action-link action-link--ghost" id="officialBackButton" type="button">返回</button>
+                <button class="action-link action-link--ghost" id="officialCloseButton" type="button">关闭</button>
+                <button class="action-link" id="officialRefreshButton" type="button">刷新页面</button>
+              </div>
+            </div>
+            <div class="iframe-shell">
+              <iframe
+                id="officialFrame"
+                title="天津知识产权交易中心官网"
+                src="http://www.tjipe.com"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                data-home-url="http://www.tjipe.com"
+              ></iframe>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="mediaCardTemplate">
+      <article class="media-card">
+        <div class="media-card__preview"></div>
+        <div class="media-card__body media-card__body--simple">
+          <h3 class="media-card__title"></h3>
+          <p class="media-card__info"></p>
+          <p class="media-card__info"></p>
+        </div>
+      </article>
+    </template>
+
+    <section id="viewerOverlay" class="viewer-overlay" hidden>
+      <div class="viewer-overlay__backdrop"></div>
+      <div class="viewer-overlay__dialog">
+        <button id="viewerCloseFloatingButton" class="viewer-overlay__close-x" type="button" aria-label="关闭预览">×</button>
+        <header class="viewer-overlay__header">
+          <div>
+            <p id="viewerType" class="eyebrow">资源预览</p>
+            <h3 id="viewerTitle">当前资源</h3>
+            <p id="viewerMeta" class="viewer-overlay__meta"></p>
+          </div>
+          <div class="viewer-overlay__actions">
+            <a id="viewerOpenLink" class="action-link action-link--ghost" target="_blank" rel="noreferrer">打开原文件</a>
+            <button id="viewerCloseButton" class="action-link" type="button">关闭</button>
+          </div>
+        </header>
+        <div id="viewerBody" class="viewer-overlay__body"></div>
+      </div>
+    </section>
+
+    <section id="standbyOverlay" class="standby-overlay" hidden>
+      <div class="standby-overlay__backdrop"></div>
+      <div class="standby-overlay__content">
+        <div class="standby-overlay__header">
+          <p class="eyebrow">WAITING MODE</p>
+          <h2>天津知识产权交易中心</h2>
+          <p id="standbyCounter" class="standby-overlay__tip">待机轮播中，触摸任意位置返回</p>
+        </div>
+        <div id="standbyStage" class="standby-stage"></div>
+      </div>
+    </section>
+
+    <script src="./app.js?v=20260406-23"></script>
+  </body>
+</html>

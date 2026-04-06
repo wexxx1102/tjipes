@@ -5,7 +5,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::{Emitter, Manager};
+use std::sync::Mutex;
+use tauri::{Emitter, Manager, Url};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +54,17 @@ struct ActionResult {
 
 const ACHIEVEMENT_META_FILE: &str = "achievement_meta.json";
 const POSTER_FOLDER: &str = "posters";
+const PORTAL_LABEL: &str = "portal";
+
+#[derive(Default)]
+struct PortalStore {
+    state: Mutex<PortalState>,
+}
+
+#[derive(Default, Clone)]
+struct PortalState {
+    home_url: String,
+}
 
 fn resources_dir(app: &tauri::AppHandle) -> PathBuf {
     let base = app
@@ -130,6 +142,83 @@ fn initialize_resources(app: &tauri::AppHandle) -> Result<(), String> {
         }
     }
 
+    Ok(())
+}
+
+fn normalize_portal_url(url: &str) -> Result<String, String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("URL 不能为空".to_string());
+    }
+    Url::parse(trimmed).map_err(|_| "URL 格式不正确".to_string())?;
+    Ok(trimmed.to_string())
+}
+
+fn navigate_portal_window(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let parsed = Url::parse(url).map_err(|_| "URL 格式不正确".to_string())?;
+    let portal = app
+        .get_webview_window(PORTAL_LABEL)
+        .ok_or_else(|| "未找到容器窗口".to_string())?;
+    portal.navigate(parsed).map_err(|error| error.to_string())?;
+    portal.show().map_err(|error| error.to_string())?;
+    portal.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn create_portal_window(app: &tauri::AppHandle, url: &str, title: &str) -> Result<(), String> {
+    let parsed = Url::parse(url).map_err(|_| "URL 格式不正确".to_string())?;
+    let app_handle = app.clone();
+    let force_inplace_script = r##"
+      (() => {
+        const toAbsolute = (url) => {
+          try { return new URL(url, window.location.href).toString(); } catch (_) { return ""; }
+        };
+        const openInPlace = (url) => {
+          const next = toAbsolute(url);
+          if (!next) return;
+          window.location.assign(next);
+        };
+        const normalizeTargets = () => {
+          document.querySelectorAll("a[target='_blank']").forEach((a) => {
+            a.setAttribute("target", "_self");
+            a.removeAttribute("rel");
+          });
+        };
+        const rawOpen = window.open;
+        window.open = function(url, target, features) {
+          if (url) openInPlace(url);
+          return null;
+        };
+        document.addEventListener("click", (event) => {
+          const node = event.target instanceof Element ? event.target.closest("a[href]") : null;
+          if (!node) return;
+          const href = node.getAttribute("href");
+          if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+          const target = (node.getAttribute("target") || "").toLowerCase();
+          if (target === "_blank") {
+            event.preventDefault();
+            openInPlace(href);
+          }
+        }, true);
+        normalizeTargets();
+        setTimeout(normalizeTargets, 800);
+        setTimeout(normalizeTargets, 2000);
+      })();
+    "##;
+    tauri::WebviewWindowBuilder::new(app, PORTAL_LABEL, tauri::WebviewUrl::External(parsed))
+        .title(title)
+        .inner_size(1420.0, 900.0)
+        .resizable(true)
+        .on_page_load(move |window, _payload| {
+            let _ = window.eval(force_inplace_script);
+        })
+        .on_new_window(move |new_url, _features| {
+            let requested = new_url.as_str().to_string();
+            let _ = navigate_portal_window(&app_handle, &requested);
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build()
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -447,6 +536,66 @@ fn delete_video_posters(resources: &Path, file_name: &str) -> Result<(), String>
 }
 
 #[tauri::command]
+fn open_portal(app: tauri::AppHandle, store: tauri::State<PortalStore>, url: String, title: Option<String>) -> Result<ActionResult, String> {
+    let normalized = normalize_portal_url(&url)?;
+    let window_title = title.unwrap_or_else(|| "业务浏览容器".to_string());
+
+    if app.get_webview_window(PORTAL_LABEL).is_none() {
+        create_portal_window(&app, &normalized, &window_title)?;
+    } else {
+        navigate_portal_window(&app, &normalized)?;
+        if let Some(window) = app.get_webview_window(PORTAL_LABEL) {
+            let _ = window.set_title(&window_title);
+        }
+    }
+
+    if let Ok(mut state) = store.state.lock() {
+        state.home_url = normalized.clone();
+    }
+
+    Ok(ActionResult { ok: true })
+}
+
+#[tauri::command]
+fn portal_back(app: tauri::AppHandle) -> Result<ActionResult, String> {
+    if let Some(window) = app.get_webview_window(PORTAL_LABEL) {
+        let _ = window.eval("window.history.back();");
+    }
+    Ok(ActionResult { ok: true })
+}
+
+#[tauri::command]
+fn portal_home(app: tauri::AppHandle, store: tauri::State<PortalStore>) -> Result<ActionResult, String> {
+    let mut target_url = None;
+    if let Ok(state) = store.state.lock() {
+        if state.home_url.is_empty() {
+            return Ok(ActionResult { ok: true });
+        }
+        target_url = Some(state.home_url.clone());
+    }
+    if let Some(url) = target_url {
+        navigate_portal_window(&app, &url)?;
+    }
+    Ok(ActionResult { ok: true })
+}
+
+#[tauri::command]
+fn portal_refresh(app: tauri::AppHandle) -> Result<ActionResult, String> {
+    if let Some(window) = app.get_webview_window(PORTAL_LABEL) {
+        let _ = window.eval("window.location.reload();");
+    }
+    Ok(ActionResult { ok: true })
+}
+
+#[tauri::command]
+fn portal_close(app: tauri::AppHandle) -> Result<ActionResult, String> {
+    if let Some(window) = app.get_webview_window(PORTAL_LABEL) {
+        let _ = window.close();
+    }
+    Ok(ActionResult { ok: true })
+}
+
+#[tauri::command]
 fn list_media(app: tauri::AppHandle) -> Result<MediaPayload, String> {
     let resources_dir = resources_dir(&app);
     let metadata_map = load_achievement_meta(&resources_dir);
@@ -721,6 +870,7 @@ fn delete_achievement(app: tauri::AppHandle, file_name: String) -> Result<Action
 
 fn main() {
     tauri::Builder::default()
+        .manage(PortalStore::default())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             initialize_resources(&app.handle())?;
@@ -730,6 +880,48 @@ fn main() {
                 .inner_size(1600.0, 900.0)
                 .resizable(true)
                 .fullscreen(true)
+                .initialization_script_for_all_frames(
+                    r##"
+                    (() => {
+                      const toAbsoluteUrl = (raw) => {
+                        try {
+                          return new URL(raw, window.location.href).toString();
+                        } catch (_) {
+                          return "";
+                        }
+                      };
+                      const emitToTop = (raw) => {
+                        const url = toAbsoluteUrl(raw);
+                        if (!url) return;
+                        try {
+                          window.top.postMessage({ type: "tjipe-open-url", url }, "*");
+                        } catch (_) {}
+                      };
+
+                      const nativeOpen = window.open;
+                      window.open = function(url, target, features) {
+                        if (url) {
+                          emitToTop(url);
+                          return null;
+                        }
+                        return nativeOpen ? nativeOpen.call(window, url, target, features) : null;
+                      };
+
+                      document.addEventListener("click", (event) => {
+                        const node = event.target instanceof Element ? event.target.closest("a[href]") : null;
+                        if (!node) return;
+                        const href = node.getAttribute("href");
+                        if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+                        const target = (node.getAttribute("target") || "").toLowerCase();
+                        if (target === "_blank") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          emitToTop(href);
+                        }
+                      }, true);
+                    })();
+                    "##,
+                )
                 .on_new_window(move |url, _features| {
                     let _ = handle.emit("portal-open-url", url.as_str().to_string());
                     tauri::webview::NewWindowResponse::Deny
@@ -741,7 +933,12 @@ fn main() {
             list_media,
             upload_achievement,
             update_achievement_meta,
-            delete_achievement
+            delete_achievement,
+            open_portal,
+            portal_back,
+            portal_home,
+            portal_refresh,
+            portal_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
