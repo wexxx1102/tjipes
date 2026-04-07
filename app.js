@@ -24,15 +24,31 @@ const standbyCounter = document.querySelector("#standbyCounter");
 const tradingFrame = document.querySelector("#tradingFrame");
 const dataIpFrame = document.querySelector("#dataIpFrame");
 const officialFrame = document.querySelector("#officialFrame");
+const scanFrame = document.querySelector("#scanFrame");
 const tradingRefreshButton = document.querySelector("#tradingRefreshButton");
 const dataIpRefreshButton = document.querySelector("#dataIpRefreshButton");
 const officialRefreshButton = document.querySelector("#officialRefreshButton");
+const scanRefreshButton = document.querySelector("#scanRefreshButton");
+const tradingCompatButton = document.querySelector("#tradingCompatButton");
+const dataIpCompatButton = document.querySelector("#dataIpCompatButton");
+const officialCompatButton = document.querySelector("#officialCompatButton");
 const tradingBackButton = document.querySelector("#tradingBackButton");
 const dataIpBackButton = document.querySelector("#dataIpBackButton");
 const officialBackButton = document.querySelector("#officialBackButton");
+const scanBackButton = document.querySelector("#scanBackButton");
 const tradingCloseButton = document.querySelector("#tradingCloseButton");
 const dataIpCloseButton = document.querySelector("#dataIpCloseButton");
 const officialCloseButton = document.querySelector("#officialCloseButton");
+const scanCloseButton = document.querySelector("#scanCloseButton");
+const scanConnectButton = document.querySelector("#scanConnectButton");
+const scanModeSelect = document.querySelector("#scanModeSelect");
+const scanTerminatorSelect = document.querySelector("#scanTerminatorSelect");
+const scanKeyGapInput = document.querySelector("#scanKeyGapInput");
+const scanMinLengthInput = document.querySelector("#scanMinLengthInput");
+const scanOpenModeSelect = document.querySelector("#scanOpenModeSelect");
+const scanUrlTemplateInput = document.querySelector("#scanUrlTemplateInput");
+const scanStatus = document.querySelector("#scanStatus");
+const scanLatestResult = document.querySelector("#scanLatestResult");
 const achievementForm = document.querySelector("#achievementForm");
 const achievementFile = document.querySelector("#achievementFile");
 const achievementTitle = document.querySelector("#achievementTitle");
@@ -70,15 +86,30 @@ let pendingPosterBlob = null;
 let pendingPosterToken = "";
 const selectedAchievementNames = new Set();
 const videoPreviewCache = new Map();
-const CARD_ROTATE_MS = 5000;
+const CARD_ROTATE_MS = 9000;
 const CARDS_PER_PAGE = 4;
 const portalState = new WeakMap();
 const VIEW_STORAGE_KEY = "tjipe-active-view";
 const AVAILABLE_VIEWS = new Set(Array.from(viewPanels).map((panel) => panel.dataset.viewPanel).filter(Boolean));
+const SCAN_CONFIG_KEY = "tjipe-scan-config";
 const PORTAL_VIEW_CONFIG = {
   trading: { title: "交易项目查询", url: "https://zscq.tpre.cn/ListedTec/Index", frame: tradingFrame },
   "data-ip": { title: "数据知识产权登记", url: "http://www.tjipe.com/data-asset/index", frame: dataIpFrame },
   official: { title: "中心官网", url: "http://www.tjipe.com", frame: officialFrame },
+};
+
+let scanConnected = true;
+let scanBuffer = "";
+let scanLastTs = 0;
+let scanIdleTimer = null;
+let scanLogItems = [];
+let scanConfig = {
+  mode: "keyboard",
+  terminator: "enter",
+  keyGapMs: 80,
+  minLength: 4,
+  openMode: "inline",
+  urlTemplate: "",
 };
 
 function isTauriRuntime() {
@@ -177,6 +208,193 @@ async function invokePortalCommand(command, payload = {}) {
     throw new Error("桌面桥接尚未就绪，请稍后重试");
   }
   return tauriInvoke(command, payload);
+}
+
+function loadScanConfig() {
+  try {
+    const raw = window.localStorage.getItem(SCAN_CONFIG_KEY);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      scanConfig = {
+        ...scanConfig,
+        ...parsed,
+        keyGapMs: Number(parsed.keyGapMs) > 0 ? Number(parsed.keyGapMs) : scanConfig.keyGapMs,
+        minLength: Number(parsed.minLength) > 0 ? Number(parsed.minLength) : scanConfig.minLength,
+      };
+    }
+  } catch (_error) {
+    // Ignore invalid storage.
+  }
+}
+
+function saveScanConfig() {
+  try {
+    window.localStorage.setItem(SCAN_CONFIG_KEY, JSON.stringify(scanConfig));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function renderScanConfig() {
+  if (scanModeSelect) {
+    scanModeSelect.value = scanConfig.mode;
+  }
+  if (scanTerminatorSelect) {
+    scanTerminatorSelect.value = scanConfig.terminator;
+  }
+  if (scanKeyGapInput) {
+    scanKeyGapInput.value = String(scanConfig.keyGapMs);
+  }
+  if (scanMinLengthInput) {
+    scanMinLengthInput.value = String(scanConfig.minLength);
+  }
+  if (scanOpenModeSelect) {
+    scanOpenModeSelect.value = scanConfig.openMode;
+  }
+  if (scanUrlTemplateInput) {
+    scanUrlTemplateInput.value = scanConfig.urlTemplate || "";
+  }
+}
+
+function setScanStatus(text) {
+  if (scanStatus) {
+    scanStatus.textContent = text;
+  }
+}
+
+function renderScanLog() {
+  if (!scanLatestResult) {
+    return;
+  }
+  if (scanLogItems.length === 0) {
+    scanLatestResult.textContent = "最近结果：暂无";
+    return;
+  }
+  const latest = scanLogItems[0];
+  scanLatestResult.textContent = `最近结果：${latest.text}`;
+}
+
+function appendScanLog(text) {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  scanLogItems.unshift({ time: `${hh}:${mm}:${ss}`, text: String(text || "") });
+  scanLogItems = scanLogItems.slice(0, 12);
+  renderScanLog();
+}
+
+function normalizeScannedUrl(raw) {
+  const text = String(raw || "")
+    .trim()
+    .replace(/[：]/g, ":")
+    .replace(/[。]/g, ".")
+    .replace(/[／]/g, "/")
+    .replace(/[？]/g, "?")
+    .replace(/[＆]/g, "&")
+    .replace(/[＝]/g, "=")
+    .replace(/[＃]/g, "#")
+    .replace(/[％]/g, "%");
+  const repairedText = text
+    .replace(/^https\/\//i, "https://")
+    .replace(/^http\/\//i, "http://");
+  if (!repairedText) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(repairedText)) {
+    return repairedText;
+  }
+  const template = (scanConfig.urlTemplate || "").trim();
+  if (template && template.includes("{code}")) {
+    return template.replaceAll("{code}", encodeURIComponent(repairedText));
+  }
+  return "";
+}
+
+async function openScannedResult(rawText) {
+  const url = normalizeScannedUrl(rawText);
+  if (!url) {
+    appendScanLog(`未匹配URL：${rawText}`);
+    setScanStatus("扫码内容不是URL，且未配置模板。");
+    return;
+  }
+
+  appendScanLog(url);
+  if (scanConfig.openMode === "compat" && isTauriRuntime()) {
+    await invokePortalCommand("open_portal", { url, title: "成果扫描（兼容模式）" });
+    setScanStatus("已在兼容模式打开扫码链接。");
+    return;
+  }
+
+  switchView("scan", { persist: true });
+  navigateFrame(scanFrame, url, true);
+  setScanStatus("已在本页容器打开扫码链接。");
+}
+
+function collectScanConfigFromUi() {
+  scanConfig.mode = scanModeSelect?.value || "keyboard";
+  scanConfig.terminator = scanTerminatorSelect?.value || "enter";
+  scanConfig.keyGapMs = Math.max(20, Math.min(500, Number(scanKeyGapInput?.value || 80) || 80));
+  scanConfig.minLength = Math.max(1, Math.min(64, Number(scanMinLengthInput?.value || 4) || 4));
+  scanConfig.openMode = scanOpenModeSelect?.value || "inline";
+  scanConfig.urlTemplate = (scanUrlTemplateInput?.value || "").trim();
+}
+
+function finalizeScanBuffer() {
+  const text = scanBuffer.trim();
+  scanBuffer = "";
+  scanLastTs = 0;
+  if (text.length < scanConfig.minLength) {
+    return;
+  }
+  openScannedResult(text).catch((error) => {
+    setScanStatus(`扫码打开失败：${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
+function consumeScannerKey(key) {
+  const now = Date.now();
+  if (scanLastTs && now - scanLastTs > scanConfig.keyGapMs) {
+    scanBuffer = "";
+  }
+  scanLastTs = now;
+
+  const terminator = scanConfig.terminator;
+  const isEnter = key === "Enter";
+  const isTab = key === "Tab";
+  const isTerminator = (terminator === "enter" && isEnter) || (terminator === "tab" && isTab);
+  if (isTerminator) {
+    finalizeScanBuffer();
+    return true;
+  }
+
+  if (typeof key === "string" && key.length === 1) {
+    scanBuffer += key;
+    if (scanIdleTimer) {
+      window.clearTimeout(scanIdleTimer);
+    }
+    if (terminator === "none") {
+      scanIdleTimer = window.setTimeout(() => {
+        finalizeScanBuffer();
+      }, Math.max(120, scanConfig.keyGapMs + 40));
+    }
+  }
+  return false;
+}
+
+function handleKeyboardScannerInput(event) {
+  if (!scanConnected || scanConfig.mode !== "keyboard") {
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return;
+  }
+  if (consumeScannerKey(event.key)) {
+    event.preventDefault();
+  }
 }
 
 async function openPortalForView(view) {
@@ -838,10 +1056,13 @@ function closeFrameToHome(frame) {
 function getActivePortalFrame() {
   const active = document.querySelector(".view.is-active");
   if (!active) {
-    return tradingFrame || dataIpFrame || officialFrame || null;
+    return scanFrame || tradingFrame || dataIpFrame || officialFrame || null;
   }
 
   const panel = active.dataset.viewPanel;
+  if (panel === "scan") {
+    return scanFrame;
+  }
   if (panel === "trading") {
     return tradingFrame;
   }
@@ -851,7 +1072,7 @@ function getActivePortalFrame() {
   if (panel === "official") {
     return officialFrame;
   }
-  return tradingFrame || dataIpFrame || officialFrame || null;
+  return scanFrame || tradingFrame || dataIpFrame || officialFrame || null;
 }
 
 function openUrlInActivePortal(url) {
@@ -863,6 +1084,17 @@ function openUrlInActivePortal(url) {
     return;
   }
   navigateFrame(frame, url, true);
+}
+
+function getFrameCurrentUrl(frame) {
+  if (!frame) {
+    return "";
+  }
+  try {
+    return frame.contentWindow?.location?.href || frame.src || "";
+  } catch (_error) {
+    return frame.src || "";
+  }
 }
 
 function getTotalPages() {
@@ -1488,12 +1720,14 @@ function renderStandbySlide() {
 
   const info = document.createElement("div");
   info.className = "standby-slide__info";
+  const achievement = item.achievement || {};
+  const title = achievement.title || item.displayName || "未命名成果";
+  const owner = achievement.owner || "未填写";
+  const patentNo = achievement.patentNo || "未填写";
   info.innerHTML = `
-    <span class="standby-slide__label">${item.typeLabel}</span>
-    <h3>${item.displayName}</h3>
-    <p>${item.folderLabel}</p>
-    <p class="standby-slide__meta">文件大小：${formatFileSize(item.size)}</p>
-    <p class="standby-slide__meta">可在首页点击“刷新内容”获取最新成果</p>
+    <h3>${title}</h3>
+    <p><span>成果持有方</span>${owner}</p>
+    <p><span>专利号</span>${patentNo}</p>
   `;
 
   slide.append(media, info);
@@ -1931,13 +2165,26 @@ if (carouselNextButton) {
 
 window.addEventListener("message", (event) => {
   const payload = event?.data;
-  if (!payload || payload.type !== "tjipe-open-url") {
+  if (!payload || typeof payload !== "object") {
     return;
   }
-  if (typeof payload.url !== "string" || !payload.url) {
+  if (payload.type === "tjipe-open-url") {
+    if (typeof payload.url !== "string" || !payload.url) {
+      return;
+    }
+    openUrlInActivePortal(payload.url);
     return;
   }
-  openUrlInActivePortal(payload.url);
+  if (payload.type === "tjipe-scan-key") {
+    if (!scanConnected || scanConfig.mode !== "keyboard") {
+      return;
+    }
+    const key = typeof payload.key === "string" ? payload.key : "";
+    if (!key) {
+      return;
+    }
+    consumeScannerKey(key);
+  }
 });
 
 if (standbyOverlay) {
@@ -1972,6 +2219,7 @@ window.addEventListener("keydown", (event) => {
     closeViewer();
     resetStandbyTimer();
   }
+  handleKeyboardScannerInput(event);
 });
 
 if (tradingRefreshButton) {
@@ -1992,6 +2240,13 @@ if (officialRefreshButton) {
   officialRefreshButton.addEventListener("click", () => {
     resetStandbyTimer();
     refreshEmbeddedFrame(officialFrame);
+  });
+}
+
+if (scanRefreshButton) {
+  scanRefreshButton.addEventListener("click", () => {
+    resetStandbyTimer();
+    refreshEmbeddedFrame(scanFrame);
   });
 }
 
@@ -2016,6 +2271,13 @@ if (officialBackButton) {
   });
 }
 
+if (scanBackButton) {
+  scanBackButton.addEventListener("click", () => {
+    resetStandbyTimer();
+    goBackFrame(scanFrame);
+  });
+}
+
 if (tradingCloseButton) {
   tradingCloseButton.addEventListener("click", () => {
     resetStandbyTimer();
@@ -2037,6 +2299,57 @@ if (officialCloseButton) {
     resetStandbyTimer();
     closeFrameToHome(officialFrame);
     switchView("showcase", { persist: true });
+  });
+}
+
+if (scanCloseButton) {
+  scanCloseButton.addEventListener("click", () => {
+    resetStandbyTimer();
+    closeFrameToHome(scanFrame);
+    switchView("showcase", { persist: true });
+  });
+}
+
+if (scanConnectButton) {
+  scanConnectButton.addEventListener("click", () => {
+    scanConnected = !scanConnected;
+    scanBuffer = "";
+    scanLastTs = 0;
+    scanConnectButton.textContent = scanConnected ? "断开扫码器" : "连接扫码器";
+    setScanStatus(scanConnected ? "已连接（键盘扫码枪）" : "未连接");
+  });
+}
+
+if (tradingCompatButton) {
+  tradingCompatButton.addEventListener("click", async () => {
+    resetStandbyTimer();
+    if (!isTauriRuntime()) {
+      return;
+    }
+    const url = getFrameCurrentUrl(tradingFrame) || (getPortalConfig("trading")?.url ?? "");
+    await invokePortalCommand("open_portal", { url, title: "交易项目查询（兼容模式）" });
+  });
+}
+
+if (dataIpCompatButton) {
+  dataIpCompatButton.addEventListener("click", async () => {
+    resetStandbyTimer();
+    if (!isTauriRuntime()) {
+      return;
+    }
+    const url = getFrameCurrentUrl(dataIpFrame) || (getPortalConfig("data-ip")?.url ?? "");
+    await invokePortalCommand("open_portal", { url, title: "数据知识产权登记（兼容模式）" });
+  });
+}
+
+if (officialCompatButton) {
+  officialCompatButton.addEventListener("click", async () => {
+    resetStandbyTimer();
+    if (!isTauriRuntime()) {
+      return;
+    }
+    const url = getFrameCurrentUrl(officialFrame) || (getPortalConfig("official")?.url ?? "");
+    await invokePortalCommand("open_portal", { url, title: "中心官网（兼容模式）" });
   });
 }
 
@@ -2133,10 +2446,16 @@ if (achievementUploadModal) {
 setupEmbeddedFrameNavigation(tradingFrame);
 setupEmbeddedFrameNavigation(dataIpFrame);
 setupEmbeddedFrameNavigation(officialFrame);
+setupEmbeddedFrameNavigation(scanFrame);
 
 async function initializeApp() {
   clearUploadPreview();
   closeUploadModal();
+  loadScanConfig();
+  renderScanConfig();
+  renderScanLog();
+  setScanStatus("已连接（键盘扫码枪）");
+  scanConnected = true;
   ensureActiveView();
 
   if (isTauriRuntime()) {

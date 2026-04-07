@@ -585,11 +585,117 @@ a {
   min-height: calc(100vh - 32px);
 }
 
+.scan-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  padding: 14px;
+}
+
+.scan-panel .panel__head {
+  gap: 10px;
+}
+
+.scan-panel .panel__head h3 {
+  margin: 0;
+}
+
+.scan-panel .panel__head p {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.scan-panel .action-link {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
 .portal-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.scan-config {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.scan-panel .iframe-shell {
+  min-height: 0;
+  height: 100%;
+  border-radius: 16px;
+  min-height: calc(100vh - 218px);
+}
+
+.scan-compact-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.scan-config__row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.scan-field {
+  display: grid;
+  gap: 6px;
+}
+
+.scan-field--wide {
+  grid-column: 1 / span 4;
+}
+
+.scan-field span {
+  font-size: 0.84rem;
+  color: rgba(226, 241, 255, 0.92);
+}
+
+.scan-field input,
+.scan-field select {
+  width: 100%;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 33, 72, 0.55);
+  color: #fff;
+  padding: 0 10px;
+}
+
+.scan-config .scan-config__row,
+.scan-config .scan-field {
+  display: none;
+}
+
+.scan-status {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(227, 242, 255, 0.92);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-log-item__text {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1380px) {
+  .scan-config__row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .scan-field--wide {
+    grid-column: 1 / -1;
+  }
 }
 
 .manage-panel {
@@ -1238,7 +1344,15 @@ a {
 .standby-slide__info p {
   margin: 0;
   color: rgba(255, 255, 255, 0.82);
-  line-height: 1.7;
+  line-height: 1.6;
+  font-size: 1.05rem;
+}
+
+.standby-slide__info p span {
+  display: inline-block;
+  min-width: 7em;
+  margin-right: 8px;
+  color: rgba(224, 241, 255, 0.72);
 }
 
 .standby-empty {

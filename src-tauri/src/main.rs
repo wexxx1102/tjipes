@@ -919,6 +919,17 @@ fn main() {
                           emitToTop(href);
                         }
                       }, true);
+
+                      if (window !== window.top) {
+                        window.addEventListener("keydown", (event) => {
+                          if (event.ctrlKey || event.metaKey || event.altKey) return;
+                          const key = event.key || "";
+                          if (!key) return;
+                          try {
+                            window.top.postMessage({ type: "tjipe-scan-key", key }, "*");
+                          } catch (_) {}
+                        }, true);
+                      }
                     })();
                     "##,
                 )

@@ -29,8 +29,9 @@
         <nav class="nav" aria-label="主导航">
           <button class="nav__button is-active" data-view="showcase">成果展示</button>
           <button class="nav__button" data-view="manage">成果管理</button>
-          <button class="nav__button" data-view="trading">交易项目查询</button>
-          <button class="nav__button" data-view="data-ip">数据知识产权登记</button>
+          <button class="nav__button" data-view="scan">成果扫码</button>
+          <button class="nav__button" data-view="trading">项目查询</button>
+          <button class="nav__button" data-view="data-ip">数据知识产权</button>
           <button class="nav__button" data-view="official">中心官网</button>
         </nav>
       </aside>
@@ -42,7 +43,7 @@
               <div class="panel__hero">
                 <span class="panel__kicker">Tianjin Intellectual Property Exchange</span>
                 <h3>成果展示区</h3>
-                <p>统一成果卡片轮播展示，适配触摸一体机浏览与本页查看。</p>
+                <p>可触摸屏幕查看具体成果详情</p>
               </div>
               <button class="action-link showcase-refresh" id="refreshMediaButton" type="button">刷新内容</button>
             </div>
@@ -151,6 +152,40 @@
           </div>
         </section>
 
+        <section class="view" data-view-panel="scan">
+          <section class="panel portal-panel scan-panel">
+            <div class="panel__head">
+              <div>
+                <h3>成果扫描</h3>
+                <p>欢迎扫码获得成果信息</p>
+              </div>
+              <div class="portal-actions">
+                <button class="action-link action-link--ghost" id="scanBackButton" type="button">返回</button>
+                <button class="action-link action-link--ghost" id="scanCloseButton" type="button">关闭</button>
+                <button class="action-link" id="scanRefreshButton" type="button">刷新页面</button>
+              </div>
+            </div>
+
+            <div class="scan-config">
+              <div class="scan-compact-line">
+                <button class="action-link action-link--ghost" id="scanConnectButton" type="button">断开扫码器</button>
+                <p id="scanStatus" class="scan-status">已连接（键盘扫码枪）</p>
+              </div>
+            </div>
+
+            <div class="iframe-shell">
+              <iframe
+                id="scanFrame"
+                title="成果扫描容器"
+                src="about:blank"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                data-home-url="about:blank"
+              ></iframe>
+            </div>
+          </section>
+        </section>
+
         <section class="view" data-view-panel="trading">
           <section class="panel portal-panel">
             <div class="panel__head">
@@ -161,6 +196,7 @@
               <div class="portal-actions">
                 <button class="action-link action-link--ghost" id="tradingBackButton" type="button">返回</button>
                 <button class="action-link action-link--ghost" id="tradingCloseButton" type="button">关闭</button>
+                <button class="action-link action-link--ghost" id="tradingCompatButton" type="button">兼容模式</button>
                 <button class="action-link" id="tradingRefreshButton" type="button">刷新页面</button>
               </div>
             </div>
@@ -187,6 +223,7 @@
               <div class="portal-actions">
                 <button class="action-link action-link--ghost" id="dataIpBackButton" type="button">返回</button>
                 <button class="action-link action-link--ghost" id="dataIpCloseButton" type="button">关闭</button>
+                <button class="action-link action-link--ghost" id="dataIpCompatButton" type="button">兼容模式</button>
                 <button class="action-link" id="dataIpRefreshButton" type="button">刷新页面</button>
               </div>
             </div>
@@ -213,6 +250,7 @@
               <div class="portal-actions">
                 <button class="action-link action-link--ghost" id="officialBackButton" type="button">返回</button>
                 <button class="action-link action-link--ghost" id="officialCloseButton" type="button">关闭</button>
+                <button class="action-link action-link--ghost" id="officialCompatButton" type="button">兼容模式</button>
                 <button class="action-link" id="officialRefreshButton" type="button">刷新页面</button>
               </div>
             </div>
