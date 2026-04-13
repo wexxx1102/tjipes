@@ -20,6 +20,7 @@ struct MediaItem {
     size: u64,
     mime_type: String,
     poster_url: String,
+    proxy_url: String,
     achievement: AchievementMeta,
 }
 
@@ -54,7 +55,30 @@ struct ActionResult {
 
 const ACHIEVEMENT_META_FILE: &str = "achievement_meta.json";
 const POSTER_FOLDER: &str = "posters";
+const VIDEO_PROXY_FOLDER: &str = "videos_proxy";
 const PORTAL_LABEL: &str = "portal";
+
+#[cfg(target_os = "windows")]
+fn configure_windows_webview_gpu() {
+    // WebView2 通常默认启用硬件加速，这里补充常见 GPU 加速参数，
+    // 避免在部分设备上被保守策略降级。
+    const GPU_ARGS: &str = "--enable-gpu --enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist";
+
+    let merged = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        Ok(existing) if !existing.trim().is_empty() => {
+            if existing.contains("--enable-gpu") {
+                existing
+            } else {
+                format!("{existing} {GPU_ARGS}")
+            }
+        }
+        _ => GPU_ARGS.to_string(),
+    };
+
+    unsafe {
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", merged);
+    }
+}
 
 #[derive(Default)]
 struct PortalStore {
@@ -121,6 +145,7 @@ fn initialize_resources(app: &tauri::AppHandle) -> Result<(), String> {
         fs::create_dir_all(writable.join(folder)).map_err(|error| error.to_string())?;
     }
     fs::create_dir_all(writable.join(POSTER_FOLDER)).map_err(|error| error.to_string())?;
+    fs::create_dir_all(writable.join(VIDEO_PROXY_FOLDER)).map_err(|error| error.to_string())?;
 
     let should_seed = !has_any_media(&writable) && !writable.join(ACHIEVEMENT_META_FILE).exists();
     if !should_seed {
@@ -380,6 +405,25 @@ fn save_video_poster(resources: &Path, video_name: &str, poster_data: &[u8]) -> 
     fs::write(poster_path, poster_data).map_err(|error| error.to_string())
 }
 
+fn find_video_proxy(resources: &Path, video_name: &str) -> String {
+    let stem = Path::new(video_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+
+    if stem.is_empty() {
+        return String::new();
+    }
+
+    let proxy_dir = resources.join(VIDEO_PROXY_FOLDER);
+    let candidate = proxy_dir.join(format!("{stem}.mp4"));
+    if candidate.exists() {
+        return candidate.to_string_lossy().to_string();
+    }
+
+    String::new()
+}
+
 fn try_generate_video_poster(resources: &Path, saved_video_path: &Path, video_name: &str) {
     if !find_video_poster(resources, video_name).is_empty() {
         return;
@@ -447,6 +491,69 @@ fn try_generate_video_poster(resources: &Path, saved_video_path: &Path, video_na
                 let target_png = poster_dir.join(format!("{stem}.png"));
                 let _ = fs::copy(quicklook_png, target_png);
             }
+        }
+    }
+}
+
+fn try_generate_video_proxy(resources: &Path, saved_video_path: &Path, video_name: &str) {
+    if !find_video_proxy(resources, video_name).is_empty() {
+        return;
+    }
+
+    let stem = Path::new(video_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if stem.is_empty() {
+        return;
+    }
+
+    let proxy_dir = resources.join(VIDEO_PROXY_FOLDER);
+    if fs::create_dir_all(&proxy_dir).is_err() {
+        return;
+    }
+
+    let proxy_path = proxy_dir.join(format!("{stem}.mp4"));
+    let input = saved_video_path.to_string_lossy().to_string();
+    let output = proxy_path.to_string_lossy().to_string();
+
+    // 生成低配设备优先使用的 720p H.264 代理视频，降低解码压力。
+    let args: Vec<&str> = vec![
+        "-y",
+        "-i",
+        &input,
+        "-vf",
+        "scale='min(1280,iw)':-2,fps=25",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-profile:v",
+        "main",
+        "-level",
+        "4.0",
+        "-pix_fmt",
+        "yuv420p",
+        "-crf",
+        "28",
+        "-movflags",
+        "+faststart",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        &output,
+    ];
+
+    let status = Command::new("ffmpeg")
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if let Ok(exit) = status {
+        if !exit.success() && proxy_path.exists() {
+            let _ = fs::remove_file(proxy_path);
         }
     }
 }
@@ -532,6 +639,22 @@ fn delete_video_posters(resources: &Path, file_name: &str) -> Result<(), String>
         }
     }
 
+    Ok(())
+}
+
+fn delete_video_proxy(resources: &Path, file_name: &str) -> Result<(), String> {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if stem.is_empty() {
+        return Ok(());
+    }
+
+    let proxy_path = resources.join(VIDEO_PROXY_FOLDER).join(format!("{stem}.mp4"));
+    if proxy_path.exists() {
+        fs::remove_file(proxy_path).map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -671,6 +794,11 @@ fn list_media(app: tauri::AppHandle) -> Result<MediaPayload, String> {
                 } else {
                     String::new()
                 },
+                proxy_url: if media_type == "video" {
+                    find_video_proxy(&resources_dir, &path.file_name().and_then(|v| v.to_str()).unwrap_or_default().to_string())
+                } else {
+                    String::new()
+                },
                 achievement: AchievementMeta {
                     title,
                     owner: achievement.owner,
@@ -743,6 +871,13 @@ fn upload_achievement(
         if find_video_poster(&resources, &saved_name).is_empty() {
             try_generate_video_poster(&resources, &target_path, &saved_name);
         }
+
+        let resources_clone = resources.clone();
+        let target_path_clone = target_path.clone();
+        let saved_name_clone = saved_name.clone();
+        std::thread::spawn(move || {
+            try_generate_video_proxy(&resources_clone, &target_path_clone, &saved_name_clone);
+        });
     }
 
     let fallback_title = target_path
@@ -853,6 +988,7 @@ fn delete_achievement(app: tauri::AppHandle, file_name: String) -> Result<Action
 
     if is_video {
         delete_video_posters(&resources, &file_name)?;
+        delete_video_proxy(&resources, &file_name)?;
     }
 
     let mut meta = load_achievement_meta(&resources);
@@ -869,6 +1005,9 @@ fn delete_achievement(app: tauri::AppHandle, file_name: String) -> Result<Action
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    configure_windows_webview_gpu();
+
     tauri::Builder::default()
         .manage(PortalStore::default())
         .plugin(tauri_plugin_opener::init())
