@@ -1529,7 +1529,8 @@ a {
 .viewer-overlay__info-card {
   position: absolute;
   left: 20px;
-  bottom: 20px;
+  top: 20px;
+  bottom: auto;
   width: min(520px, calc(100% - 40px));
   border-radius: 18px;
   padding: 14px 16px;
