@@ -112,6 +112,9 @@ let scanConfig = {
   urlTemplate: "",
 };
 
+const IS_WINDOWS = /Windows/i.test(window.navigator.userAgent || "");
+const LOW_PERFORMANCE_MODE = IS_WINDOWS;
+
 function isTauriRuntime() {
   return Boolean(window.__TAURI_INTERNALS__ || (window.__TAURI__ && typeof window.__TAURI__.invoke === "function"));
 }
@@ -598,7 +601,7 @@ function extractVideoFrame(videoUrl) {
       }
     };
 
-    video.preload = "auto";
+    video.preload = "metadata";
     video.muted = true;
     video.playsInline = true;
     video.src = videoUrl;
@@ -699,7 +702,7 @@ function attachInlineVideoPoster(videoUrls, wrapper, imageElement) {
     inlineVideo.src = candidate;
     inlineVideo.muted = true;
     inlineVideo.playsInline = true;
-    inlineVideo.preload = "auto";
+    inlineVideo.preload = "metadata";
     inlineVideo.autoplay = false;
     inlineVideo.controls = false;
 
@@ -750,6 +753,19 @@ function attachInlineVideoPoster(videoUrls, wrapper, imageElement) {
 }
 
 function attachVideoPreview(item, imageElement, wrapper) {
+  if (LOW_PERFORMANCE_MODE) {
+    if (item.posterUrl) {
+      imageElement.src = buildVersionedUrl(item.posterUrl);
+      wrapper.classList.add("is-ready");
+      wrapper.classList.remove("is-failed", "is-inline-video");
+      return;
+    }
+    wrapper.classList.add("is-ready", "is-failed");
+    wrapper.classList.remove("is-inline-video");
+    imageElement.removeAttribute("src");
+    return;
+  }
+
   const previewCandidates = buildMediaUrlCandidates(item.url);
 
   extractVideoFrameFromCandidates(previewCandidates)
@@ -802,9 +818,15 @@ function buildViewerVideo(item, viewerBody, infoCard) {
   inlineVideo.controls = true;
   inlineVideo.autoplay = false;
   inlineVideo.playsInline = true;
-  inlineVideo.preload = "auto";
+  inlineVideo.preload = LOW_PERFORMANCE_MODE ? "metadata" : "auto";
+  inlineVideo.disablePictureInPicture = true;
+  inlineVideo.disableRemotePlayback = true;
 
-  const videoCandidates = buildMediaUrlCandidates(item.url);
+  const videoCandidates = [];
+  if (LOW_PERFORMANCE_MODE && item.proxyUrl) {
+    videoCandidates.push(...buildMediaUrlCandidates(item.proxyUrl));
+  }
+  videoCandidates.push(...buildMediaUrlCandidates(item.url));
   let failed = false;
   attachVideoPosterFromCandidates(inlineVideo, videoCandidates, () => {
     failed = true;
@@ -816,7 +838,7 @@ function buildViewerVideo(item, viewerBody, infoCard) {
 
   if (item.posterUrl) {
     inlineVideo.poster = buildVersionedUrl(item.posterUrl);
-  } else {
+  } else if (!LOW_PERFORMANCE_MODE) {
     extractVideoFrameFromCandidates(videoCandidates)
       .then((frameUrl) => {
         inlineVideo.poster = frameUrl;
@@ -826,21 +848,23 @@ function buildViewerVideo(item, viewerBody, infoCard) {
       });
   }
 
-  inlineVideo.addEventListener(
-    "loadeddata",
-    () => {
-      if (failed) {
-        return;
-      }
-      try {
-        inlineVideo.currentTime = 0.001;
-      } catch (_error) {
-        // Keep native first decoded frame.
-      }
-      inlineVideo.pause();
-    },
-    { once: true }
-  );
+  if (!LOW_PERFORMANCE_MODE) {
+    inlineVideo.addEventListener(
+      "loadeddata",
+      () => {
+        if (failed) {
+          return;
+        }
+        try {
+          inlineVideo.currentTime = 0.001;
+        } catch (_error) {
+          // Keep native first decoded frame.
+        }
+        inlineVideo.pause();
+      },
+      { once: true }
+    );
+  }
 
   viewerBody.appendChild(inlineVideo);
   viewerBody.appendChild(infoCard);
@@ -882,6 +906,10 @@ function createPreview(item, autoplay = false) {
         attachVideoPreview(item, image, wrapper);
       };
       image.src = buildVersionedUrl(item.posterUrl);
+      return wrapper;
+    }
+    if (LOW_PERFORMANCE_MODE) {
+      wrapper.classList.add("is-ready", "is-failed");
       return wrapper;
     }
     attachVideoPreview(item, image, wrapper);
@@ -2449,6 +2477,9 @@ setupEmbeddedFrameNavigation(officialFrame);
 setupEmbeddedFrameNavigation(scanFrame);
 
 async function initializeApp() {
+  if (LOW_PERFORMANCE_MODE) {
+    document.body.classList.add("low-perf");
+  }
   clearUploadPreview();
   closeUploadModal();
   loadScanConfig();

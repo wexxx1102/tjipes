@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "identifier": "com.tjipe.touchscreen",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
+    "beforeDevCommand": "npm run sync:web-dist",
+    "beforeBuildCommand": "npm run sync:web-dist",
     "frontendDist": "../web-dist"
   },
   "app": {
